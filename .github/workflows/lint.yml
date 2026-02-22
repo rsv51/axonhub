@@ -21,8 +21,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: stable
-          stable: true
+          # 修复：'stable' 应该作为版本值，而不是参数名
+          go-version: 'stable'  # 使用最新稳定版
+          # 删除错误的 'stable: true' 参数
           cache: true
 
       - name: golangci-lint
