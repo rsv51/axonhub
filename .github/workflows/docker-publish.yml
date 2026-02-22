@@ -1,44 +1,82 @@
-name: Publish Docker image
+name: Build and Push Docker image to GHCR
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - master
+      - unstable
     tags:
       - 'v*'
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+      - master
+    types: [opened, synchronize, reopened]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  build-and-push:
+    name: Build and Push
     runs-on: ubuntu-latest
     permissions:
-      packages: write
       contents: read
-    
+      packages: write
+      id-token: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # 修复：正确设置 Go 环境
+      # 如果需要在构建前使用 Go（例如运行测试）
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'  # 指定你的 Go 版本
-          # 或者使用 go.mod 中的版本（推荐）
-          # go-version-file: 'go.mod'
+          go-version: 'stable'
           cache: true
 
-      - name: Log in to Docker Hub
+      # 登录到 GitHub Container Registry
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 提取 Docker 元数据
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=unstable,enable=${{ github.ref == 'refs/heads/unstable' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=short
+            type=ref,event=branch
+            type=ref,event=pr
+
+      # 设置 Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 构建并推送 Docker 镜像
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: |
-            rsv51/axonhub:latest
-            rsv51/axonhub:${{ github.ref_name }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
