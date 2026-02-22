@@ -51,6 +51,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # 可选：如果你确实需要 Go 环境，可以明确指定版本
+      # - name: Set up Go
+      #   uses: actions/setup-go@v5
+      #   with:
+      #     go-version: '1.21'
+      #     cache: false  # 禁用缓存避免警告
+
       - name: Extract metadata (labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -87,6 +94,9 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Create & push manifest (Docker Hub - version)
         run: |
