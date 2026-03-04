@@ -17,8 +17,10 @@ import (
 	"github.com/looplj/axonhub/internal/server/dependencies"
 	"github.com/looplj/axonhub/internal/server/gc"
 	"github.com/looplj/axonhub/internal/server/gql"
+	"github.com/looplj/axonhub/internal/server/gql/agentapi"
 	"github.com/looplj/axonhub/internal/server/gql/openapi"
 	"github.com/looplj/axonhub/internal/server/middleware"
+	"github.com/looplj/axonhub/internal/server/video_storage"
 	"github.com/looplj/axonhub/internal/tracing"
 )
 
@@ -77,6 +79,7 @@ func (srv *Server) Shutdown(ctx context.Context) error {
 
 func Run(opts ...fx.Option) {
 	constructors := []any{
+		agentapi.NewGraphqlHandlers,
 		openapi.NewGraphqlHandlers,
 		gql.NewGraphqlHandlers,
 		gc.NewWorker,
@@ -90,6 +93,7 @@ func Run(opts ...fx.Option) {
 			dependencies.Module,
 			biz.Module,
 			backup.Module,
+			video_storage.Module,
 			api.Module,
 			fx.Invoke(func(cfg log.Config) {
 				log.SetGlobalConfig(cfg)

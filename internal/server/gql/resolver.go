@@ -38,6 +38,10 @@ type Resolver struct {
 	backupService                  *backup.BackupService
 	channelProbeService            *biz.ChannelProbeService
 	promptService                  *biz.PromptService
+	agentService                   *biz.AgentService
+	agentRuntimeService            *biz.AgentRuntimeService
+	agentDeployService             *biz.AgentDeployService
+	agentBootstrapService          *biz.AgentBootstrapService
 	providerQuotaService           *biz.ProviderQuotaService
 	httpClient                     *httpclient.HttpClient
 	modelFetcher                   *biz.ModelFetcher
@@ -64,6 +68,10 @@ func NewSchema(
 	backupService *backup.BackupService,
 	channelProbeService *biz.ChannelProbeService,
 	promptService *biz.PromptService,
+	agentService *biz.AgentService,
+	agentRuntimeService *biz.AgentRuntimeService,
+	agentDeployService *biz.AgentDeployService,
+	agentBootstrapService *biz.AgentBootstrapService,
 	providerQuotaService *biz.ProviderQuotaService,
 ) graphql.ExecutableSchema {
 	httpClient := httpclient.NewHttpClient()
@@ -88,6 +96,10 @@ func NewSchema(
 			backupService:                  backupService,
 			channelProbeService:            channelProbeService,
 			promptService:                  promptService,
+			agentService:                   agentService,
+			agentRuntimeService:            agentRuntimeService,
+			agentDeployService:             agentDeployService,
+			agentBootstrapService:          agentBootstrapService,
 			providerQuotaService:           providerQuotaService,
 			httpClient:                     httpClient,
 			modelFetcher:                   modelFetcher,

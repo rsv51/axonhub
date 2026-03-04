@@ -47,7 +47,8 @@ type Config struct {
 	Region string `json:"region,omitempty"` // For Vertex
 
 	ProjectID string `json:"project_id,omitempty"` // For Vertex
-	JSONData  string `json:"json_data,omitempty"`  // For Vertex
+
+	JSONData string `json:"json_data,omitempty"` // For Vertex
 
 	// BaseURL is the base URL for the Anthropic API, required.
 	BaseURL string `json:"base_url,omitempty"`
@@ -152,8 +153,10 @@ func (t *OutboundTransformer) TransformRequest(
 	// Convert to Anthropic request format
 	anthropicReq := convertToAnthropicRequestWithConfig(llmReq, t.config)
 
-	// Apply cache_control breakpoint policy before serialization.
-	ensureCacheControl(anthropicReq)
+	// Apply cache_control breakpoint policy to optimize cache control if client requests with cache_control.
+	if countCacheControls(anthropicReq) > 0 {
+		optimizeCacheControl(anthropicReq)
+	}
 
 	// Determine endpoint based on platform
 	url, err := t.buildFullRequestURL(llmReq)

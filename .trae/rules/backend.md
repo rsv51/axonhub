@@ -8,11 +8,44 @@ globs: **/*.go
 
 2. Use `make build-backend` to build the server to make sure the server is built successfully.
 
+# Multi-Module Structure
+
+This project uses Go workspace with multiple modules:
+
+| Module | Path | Description |
+|--------|------|-------------|
+| Main | `/` | Main server with ent, graphql, api handlers |
+| Axon | `/axon` | Agent framework with LLM providers, tools, memory |
+| LLM | `/llm` | LLM related utilities (replaced by main module) |
+| CLI | `/cmd/axoncli` | Terminal UI CLI tool |
+
+## Running Tests
+
+### Main Module (Root)
+```bash
+go test ./...                    # Run all tests
+go test ./internal/... -v        # Run internal package tests with verbose
+go test -run TestName ./...      # Run specific test
+```
+
+### Axon Module
+```bash
+cd axon && go test ./...         # Run all axon tests
+cd axon && go test ./provider/anthropic/... -v  # Run anthropic provider tests
+```
+
+### CLI Module
+```bash
+cd cmd/axoncli && go test ./...  # Run CLI tests
+```
+
 # Golang Rules
 
-1. USE github.com/samber/lo package to handle collection, slice, map, ptr, etc.
+1. DO NOT run `go build` or `make build-backend` unless explicitly asked. The server is managed by air in development and will auto-rebuild on code changes.
 
-2. DO NOT RUN golangci-lint run, I will run manually.
+2. USE github.com/samber/lo package to handle collection, slice, map, ptr, etc.
+
+3. DO NOT RUN golangci-lint run, I will run manually.
 
 # Ent Rules
 

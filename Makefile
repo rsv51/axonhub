@@ -1,4 +1,4 @@
-.PHONY: generate build backend frontend cleanup-db \
+.PHONY: generate build build-backend build-frontend build-axonclaw docker-build-axonclaw cleanup-db \
 	test-backend-all \
 	e2e-test e2e-backend-start e2e-backend-stop e2e-backend-status e2e-backend-restart e2e-backend-clean \
 	migration-test migration-test-all migration-test-all-dbs \
@@ -21,6 +21,18 @@ build-backend:
 	@echo "Building axonhub backend..."
 	go build -ldflags "-s -w" -tags=nomsgpack -o axonhub ./cmd/axonhub
 	@echo "Backend build completed!"
+
+# Build the axonclaw agent
+build-axonclaw:
+	@echo "Building axonclaw..."
+	cd cmd/axonclaw && go build -ldflags "-s -w" -o axonclaw .
+	@echo "Axonclaw build completed!"
+
+# Build axonclaw docker image
+docker-build-axonclaw:
+	@echo "Building axonclaw docker image..."
+	docker build -f cmd/axonclaw/Dockerfile -t axonclaw .
+	@echo "Axonclaw docker image build completed!"
 
 # Build the frontend application
 build-frontend:
@@ -61,8 +73,15 @@ test-backend-all:
 	@echo ""
 	@echo "=== Testing root module ==="
 	go test ./...
+	@echo ""
+	@echo "=== Testing axon module ==="
+	cd axon && go test ./...
+	@echo ""
 	@echo "=== Testing llm module ==="
 	cd llm && go test ./...
+	@echo ""
+	@echo "=== Testing axoncli module ==="
+	cd cmd/axoncli && go test ./...
 	@echo ""
 	@echo "All backend tests completed!"
 

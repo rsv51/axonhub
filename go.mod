@@ -37,7 +37,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/go-viper/mapstructure/v2 v2.4.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/google/jsonschema-go v0.3.1-0.20251120200837-98a387e3b975
+	github.com/google/jsonschema-go v0.4.2
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hokaccha/go-prettyjson v0.0.0-20211117102719-0474bc63780f
@@ -81,9 +81,14 @@ require (
 	github.com/tmaxmax/go-sse v0.11.0 // indirect
 )
 
+// Replace gqlgen with looplj/gqlgen to add type conversion between GUID and int.
 replace github.com/99designs/gqlgen => github.com/looplj/gqlgen v0.0.0-20251206072334-03e453169896
 
+// Replace go-sse with looplj/go-sse to add Stream type.
 replace github.com/tmaxmax/go-sse => github.com/looplj/go-sse v0.0.0-20250909130008-e74a1155bc3b
+
+// Replace gin-contrib/sse with looplj/sse to add space after data: to improve compatibility.
+replace github.com/gin-contrib/sse => github.com/looplj/sse v0.0.0-20260223020440-b463add2d52f
 
 require (
 	ariga.io/atlas v0.38.0 // indirect
@@ -94,7 +99,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.5.3 // indirect
 	cloud.google.com/go/monitoring v1.24.3 // indirect
-	filippo.io/edwards25519 v1.1.0 // indirect
+	filippo.io/edwards25519 v1.1.1 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.30.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.54.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.54.0 // indirect

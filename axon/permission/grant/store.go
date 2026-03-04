@@ -1,0 +1,325 @@
+package grant
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+type Scope string
+
+const (
+	ScopeOnce      Scope = "once"
+	ScopeThread    Scope = "thread"
+	ScopeWorkspace Scope = "workspace"
+	ScopeGlobal    Scope = "global"
+)
+
+type Request struct {
+	ToolCallID string
+	ThreadID   string
+	Workspace  string
+	ToolName   string
+}
+
+type ResourceType string
+
+const (
+	ResourcePath    ResourceType = "path"
+	ResourceDomain  ResourceType = "domain"
+	ResourceCommand ResourceType = "command"
+	ResourceSkill   ResourceType = "skill"
+	ResourceDir     ResourceType = "dir"
+)
+
+type Resource struct {
+	Type ResourceType
+
+	Path             string
+	WorkspaceRel     string
+	OutsideWorkspace bool
+
+	Domain  string
+	Command string
+	Skill   string
+}
+
+type Entry struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	Scope     Scope     `json:"scope"`
+	ThreadID  string    `json:"thread_id,omitempty"`
+	Workspace string    `json:"workspace,omitempty"`
+	ToolName  string    `json:"tool_name"`
+	Key       string    `json:"key"`
+}
+
+// Store persists approval grants and answers whether a request should be allowed
+// without prompting the user.
+//
+// Matching is done against a derived key from (tool name, resources),
+// with additional scoping rules:
+//   - once: keyed by ToolCallID only; it is consumed on first match. For the same
+//     ToolCallID, the store records it only once, and the next permission check
+//     for that ToolCallID will pass immediately (and the one-time grant is removed).
+//   - thread: keyed by (ThreadID, key)
+//   - workspace: keyed by (Workspace, key) and persisted via SaveWorkspace/LoadWorkspace
+//   - global: keyed by key only, applies to all workspaces, persisted via SaveGlobal/LoadGlobal
+type Store interface {
+	Add(req Request, scope Scope, resources []Resource)
+	Match(req Request, resources []Resource) bool
+	LoadWorkspace(workspace string) error
+	SaveWorkspace(workspace string) error
+	LoadGlobal() error
+	SaveGlobal() error
+}
+
+type MemoryStore struct {
+	mu sync.RWMutex
+
+	once      map[string]struct{}
+	thread    map[string]map[string]struct{}
+	workspace map[string]map[string]struct{}
+	global    map[string]struct{}
+
+	fileStore FileStore
+}
+
+func NewMemoryStore(fileStore FileStore) *MemoryStore {
+	return &MemoryStore{
+		once:      make(map[string]struct{}),
+		thread:    make(map[string]map[string]struct{}),
+		workspace: make(map[string]map[string]struct{}),
+		global:    make(map[string]struct{}),
+		fileStore: fileStore,
+	}
+}
+
+func (s *MemoryStore) Match(req Request, resources []Resource) bool {
+	s.mu.Lock()
+	if _, ok := s.once[req.ToolCallID]; ok {
+		delete(s.once, req.ToolCallID)
+		s.mu.Unlock()
+		return true
+	}
+	s.mu.Unlock()
+
+	keys := buildHierarchicalKeys(req, resources)
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, key := range keys {
+		if req.ThreadID != "" {
+			if m := s.thread[req.ThreadID]; m != nil {
+				if _, ok := m[key]; ok {
+					return true
+				}
+			}
+		}
+		if req.Workspace != "" {
+			if m := s.workspace[req.Workspace]; m != nil {
+				if _, ok := m[key]; ok {
+					return true
+				}
+			}
+		}
+		if _, ok := s.global[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *MemoryStore) Add(req Request, scope Scope, resources []Resource) {
+	key := BuildKey(req, resources)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch scope {
+	case ScopeOnce:
+		s.once[req.ToolCallID] = struct{}{}
+	case ScopeThread:
+		if req.ThreadID == "" {
+			return
+		}
+		if s.thread[req.ThreadID] == nil {
+			s.thread[req.ThreadID] = make(map[string]struct{})
+		}
+		s.thread[req.ThreadID][key] = struct{}{}
+	case ScopeWorkspace:
+		if req.Workspace == "" {
+			return
+		}
+		if s.workspace[req.Workspace] == nil {
+			s.workspace[req.Workspace] = make(map[string]struct{})
+		}
+		s.workspace[req.Workspace][key] = struct{}{}
+	case ScopeGlobal:
+		s.global[key] = struct{}{}
+	}
+}
+
+func (s *MemoryStore) LoadWorkspace(workspace string) error {
+	if strings.TrimSpace(workspace) == "" {
+		return nil
+	}
+	keys, err := s.fileStore.LoadWorkspace(workspace)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.workspace[filepath.Clean(workspace)] = keys
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *MemoryStore) SaveWorkspace(workspace string) error {
+	if strings.TrimSpace(workspace) == "" {
+		return nil
+	}
+	ws := filepath.Clean(workspace)
+	s.mu.RLock()
+	keys := s.workspace[ws]
+	s.mu.RUnlock()
+	if keys == nil {
+		keys = make(map[string]struct{})
+	}
+	return s.fileStore.SaveWorkspace(ws, keys)
+}
+
+func (s *MemoryStore) LoadGlobal() error {
+	keys, err := s.fileStore.LoadGlobal()
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.global = keys
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *MemoryStore) SaveGlobal() error {
+	s.mu.RLock()
+	keys := s.global
+	s.mu.RUnlock()
+	if keys == nil {
+		keys = make(map[string]struct{})
+	}
+	return s.fileStore.SaveGlobal(keys)
+}
+
+func BuildKey(req Request, resources []Resource) string {
+	return hashParts(buildParts(req, resources))
+}
+
+// buildParts returns the string components used to derive a grant key.
+func buildParts(req Request, resources []Resource) []string {
+	var parts []string
+	parts = append(parts, strings.ToLower(req.ToolName))
+
+	for _, r := range resources {
+		switch r.Type {
+		case ResourcePath:
+			if r.WorkspaceRel != "" {
+				parts = append(parts, "path_dir:"+filepath.Dir(filepath.Clean(r.WorkspaceRel)))
+			} else {
+				parts = append(parts, "path_dir_abs:"+filepath.Dir(filepath.Clean(r.Path)))
+			}
+		case ResourceDir:
+			if r.WorkspaceRel != "" {
+				parts = append(parts, "dir:"+filepath.Clean(r.WorkspaceRel))
+			} else {
+				parts = append(parts, "dir_abs:"+filepath.Clean(r.Path))
+			}
+		case ResourceDomain:
+			if r.Domain != "" {
+				parts = append(parts, "domain:"+strings.ToLower(r.Domain))
+			}
+		case ResourceCommand:
+			if r.Command != "" {
+				parts = append(parts, "cmd:"+commandSummary(r.Command))
+			}
+		case ResourceSkill:
+			if r.Skill != "" {
+				parts = append(parts, "skill:"+strings.ToLower(r.Skill))
+			}
+		}
+	}
+
+	return parts
+}
+
+func hashParts(parts []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return hex.EncodeToString(sum[:])
+}
+
+// buildHierarchicalKeys returns grant keys from the most specific (child) to
+// the least specific (ancestor). This allows a grant on a parent directory to
+// cover all its descendants.
+func buildHierarchicalKeys(req Request, resources []Resource) []string {
+	baseParts := buildParts(req, resources)
+	keys := []string{hashParts(baseParts)}
+
+	// Find the first dir part for hierarchical expansion.
+	dirIdx := -1
+	for i, p := range baseParts {
+		if i == 0 {
+			continue // skip tool name
+		}
+		if strings.HasPrefix(p, "dir:") || strings.HasPrefix(p, "dir_abs:") {
+			dirIdx = i
+			break
+		}
+	}
+	if dirIdx < 0 {
+		return keys
+	}
+
+	part := baseParts[dirIdx]
+	var prefix, dirPath string
+	if strings.HasPrefix(part, "dir_abs:") {
+		prefix = "dir_abs:"
+		dirPath = strings.TrimPrefix(part, "dir_abs:")
+	} else {
+		prefix = "dir:"
+		dirPath = strings.TrimPrefix(part, "dir:")
+	}
+
+	cur := dirPath
+	for {
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+
+		modified := make([]string, len(baseParts))
+		copy(modified, baseParts)
+		modified[dirIdx] = prefix + cur
+		keys = append(keys, hashParts(modified))
+
+		if cur == "." || cur == "/" {
+			break
+		}
+	}
+
+	return keys
+}
+
+func commandSummary(cmd string) string {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return ""
+	}
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
